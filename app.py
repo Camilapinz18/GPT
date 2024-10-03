@@ -26,6 +26,7 @@ from PyPDF2 import PdfReader
 from streamlit_extras.colored_header import colored_header
 from dotenv import load_dotenv
 
+from utils.pages import home_page
 
 
 # load the environment variables
@@ -44,38 +45,38 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai.api_key = OPENAI_API_KEY
 
 
-def get_pdf_text(pdf_docs):
-    text = ""
-    for pdf in pdf_docs:
-        pdf_reader = PdfReader(pdf)
-        for page in pdf_reader.pages:
-            text += page.extract_text()
-    return text
+# def get_pdf_text(pdf_docs):
+#     text = ""
+#     for pdf in pdf_docs:
+#         pdf_reader = PdfReader(pdf)
+#         for page in pdf_reader.pages:
+#             text += page.extract_text()
+#     return text
 
 
-def get_text_chunks(text):
-    text_splitter = CharacterTextSplitter(
-        separator="\n", chunk_size=1000, chunk_overlap=200, length_function=len
-    )
-    chunks = text_splitter.split_text(text)
-    return chunks
+# def get_text_chunks(text):
+#     text_splitter = CharacterTextSplitter(
+#         separator="\n", chunk_size=1000, chunk_overlap=200, length_function=len
+#     )
+#     chunks = text_splitter.split_text(text)
+#     return chunks
 
 
-def save_vectorstore(vectorstore, filename):
-    with open(os.path.join(VECTORSTORE_DIR, filename), "wb") as file:
-        pickle.dump(vectorstore, file)
+# def save_vectorstore(vectorstore, filename):
+#     with open(os.path.join(VECTORSTORE_DIR, filename), "wb") as file:
+#         pickle.dump(vectorstore, file)
 
 
-def get_vectorstore(text_chunks, embeddings_selection):
-    if embeddings_selection == "OpenAI":
-        embeddings = OpenAIEmbeddings(
-            openai_api_key=OPENAI_API_KEY
-        )
-    else:
-        embeddings = HuggingFaceInstructEmbeddings(model_name="hkunlp/instructor-xl")
+# def get_vectorstore(text_chunks, embeddings_selection):
+#     if embeddings_selection == "OpenAI":
+#         embeddings = OpenAIEmbeddings(
+#             openai_api_key=OPENAI_API_KEY
+#         )
+#     else:
+#         embeddings = HuggingFaceInstructEmbeddings(model_name="hkunlp/instructor-xl")
 
-    vectorstore = FAISS.from_texts(texts=text_chunks, embedding=embeddings)
-    return vectorstore
+#     vectorstore = FAISS.from_texts(texts=text_chunks, embedding=embeddings)
+#     return vectorstore
 
 
 def load_vectorstore(filename):
@@ -358,14 +359,20 @@ def analyze_image_with_openai_comparation(image_data, comparative):
         return None
     
 
-def analyze_image_with_openai(image_data):
+def analyze_image_with_openai(image_data, question):
     try:
+        print("question", question)
+        query = None
+        if question:
+            query = question
+        else:
+
+            query = f"Analiza esta imagen, es de un plano constructivo, y respondeme con la mayor cantidad de datos posibles de esos plano, incluyendo medidas, ubicaciones, convenciones, habitacioes, areas y demás cosas que consideres importantes"
         print("analyze_image_with_openai")
         # Abrir y leer la imagen
         # with open(image_path, "rb") as image_file:
         #     base64_image = base64.b64encode(image_file.read()).decode('utf-8')
         base64_image = base64.b64encode(image_data).decode('utf-8')
-        print("base64_image", base64_image)
         # Realizar la llamada a la API de OpenAI
         response = openai.ChatCompletion.create(
             model='gpt-4o',  # Cambia al modelo adecuado
@@ -375,7 +382,7 @@ def analyze_image_with_openai(image_data):
                     "content": [
                         {
                             "type": "text",
-                            "text": f"Analiza esta imagen, es de un plano constructivo, y respondeme con la mayor cantidad de datos posibles de esos plano, incluyendo medidas, ubicaciones, convenciones, habitacioes, areas y demás cosas que consideres importantes"
+                            "text": query
                         },
                         {
                             "type": "image_url",
@@ -388,7 +395,18 @@ def analyze_image_with_openai(image_data):
             ]
         )
         print("response>>>", response)
-        return response['choices'][0]['message']['content']
+        if 'choices' in response and len(response['choices']) > 0:
+            message = response['choices'][0].get('message', {})
+            content = message.get('content', None)
+            
+            if content:
+                return content
+            else:
+                st.warning("El modelo no pudo analizar la imagen o extraer los datos solicitados.")
+                return None
+        else:
+            st.error("No se recibió una respuesta válida del modelo.")
+            return None
 
     # except FileNotFoundError:
     #     print(f"Error: El archivo {image_path} no se encuentra.")
@@ -411,38 +429,41 @@ def extract_text_from_image(image_data):
         st.error(f"Error al extraer texto de la imagen: {e}")
         return ""
 
-def analyze_image_with_vectorstore(image_data, llm_chain, llm_model_name):
+def analyze_image_with_vectorstore(image_data, vectorstore):
     try:
-
+        # Convertir la imagen a base64 para incluirla en la solicitud
        
-        extracted_text = extract_text_from_image(image_data)
-        print("extracted_text", extracted_text)
-        # base64_image = base64.b64encode(image_data).decode('utf-8')
-        # image_content = f"data:image/jpeg;base64,{base64_image}"
-        # print("base64_image", base64_image)
+        
+        # Buscar información relevante en el vectorstore basada en la imagen (simulando la búsqueda usando una consulta general)
+        
 
-        question = f"Analiza el siguiente texto extraído del plano constructivo en el contexto de los datos existentes:\n{extracted_text}"
-        if llm_model_name == "OpenAI":
-            with get_openai_callback() as cb:
-                response = llm_chain.run(question)
+        # Construir el contenido para el modelo LLM con la información del vectorstore y la imagen
+        extracted_data = analyze_image_with_openai(image_data, None)
+        # Extraer la descripción con los datos relevantes de la imagen
+     
 
-                if cb is not None:
-                    cost = round(cb.total_cost, 5)
-        else:
-            response = llm_chain.run(question)
+        print("extracted_data>>", extracted_data)
 
-        st.session_state.chat_history.append((question, response))
-        return response, cost
+        # Paso 2: Buscar información relevante en el vectorstore usando los datos extraídos
+        search_results = vectorstore.similarity_search(extracted_data, k=5)
+        relevant_texts = "\n".join([result.page_content for result in search_results])
 
-    # except FileNotFoundError:
-    #     print(f"Error: El archivo {image_path} no se encuentra.")
-    #     return None
-    except openai.error.OpenAIError as e:
-        print(f"Error al comunicarse con la API de OpenAI: {e}")
-        return None
+        # Paso 3: Generar una conclusión usando la información del vectorstore y los datos extraídos
+        conclusion_prompt = (
+            f"Los datos obtenidos del análisis de la imagen son: {extracted_data}. "
+            f"Basándote en la siguiente información relevante de los documentos almacenados: {relevant_texts}, "
+            "proporciona una conclusión detallada sobre si los elementos en la imagen cumplen con la normativa."
+        )
+
+        final_respone = simple_gpt_response(conclusion_prompt, "OpenAI")
+        print("final_respone>>>", final_respone)
+
+        return final_respone[0]
+
     except Exception as e:
-        print(f"Ocurrió un error inesperado: {e}")
+        st.error(f"Ocurrió un error durante el análisis: {e}")
         return None
+
 
 ## ========================================================================================================== ##
 ## ========================================================================================================== ##
@@ -462,72 +483,95 @@ def main():
         }
     </style>
     """
-    st.markdown(page_bg_color, unsafe_allow_html=True)
-    st.header("Curaduría San Isidro")
+    if 'current_page' not in st.session_state:
+        st.session_state.current_page = "Página Principal"
 
-    with st.sidebar:
-        st.subheader(":gear: Options")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.button("Página Principal"):
+            st.session_state.current_page = "Página Principal"
+    with col2:
+        if st.button("Análisis"):
+            st.session_state.current_page = "Análisis"
+    with col3:
+        if st.button("Acerca de"):
+            st.session_state.current_page = "Acerca de"
         
-        # Step 1: Choose a Large Language Model
-        llm_selection = "OpenAI"
+        st.markdown(page_bg_color, unsafe_allow_html=True)
+        st.header("Curaduría San Isidro")
 
-        # Step 2: Choose Embeddings Model
-        embeddings_selection ="OpenAI"
-        # Step 3: Select or Create a Vector Store File
-        vectorstore_files = ["Create New"] + os.listdir(VECTORSTORE_DIR)
-        st.session_state.vectorstore_selection = st.selectbox(
-            "Step 3: Choose a Vector Store File",
-            options=vectorstore_files
-        )
+    
+    # Mostrar la página seleccionada
+    if st.session_state.current_page == "Página Principal":
+        home_page()
+    elif st.session_state.current_page == "Análisis":
+        analysis_page()
+    elif st.session_state.current_page == "Acerca de":
+        about_page()
 
-        custom_vectorstore_name = st.text_input("Enter a name for the new vectorstore (if creating new):", value="")
+    #with st.sidebar:
+        # st.subheader(":gear: Options")
+        
+        # # Step 1: Choose a Large Language Model
+        # llm_selection = "OpenAI"
 
+        # # Step 2: Choose Embeddings Model
+        # embeddings_selection ="OpenAI"
+        # # Step 3: Select or Create a Vector Store File
+        # vectorstore_files = ["Create New"] + os.listdir(VECTORSTORE_DIR)
+        # st.session_state.vectorstore_selection = st.selectbox(
+        #     "Step 3: Choose a Vector Store File",
+        #     options=vectorstore_files
+        # )
 
-        # Handle file upload
-        pdf_docs = st.file_uploader(
-            "Upload your PDFs here and click on 'Process'",
-            type=["pdf", "txt"],
-            accept_multiple_files=True
-        )
-        if st.button("Process"):
-            with st.spinner("Processing"):
-                # Get PDF text
-                raw_text = get_pdf_text(pdf_docs)
-
-                # Get the text chunks
-                text_chunks = get_text_chunks(raw_text)
-
-                # Create or load vector store
-                if (
-                    st.session_state.vectorstore_selection == "Create New"
-                    or not os.path.exists(
-                        os.path.join(VECTORSTORE_DIR, st.session_state.vectorstore_selection)
-                    )
-                ):                   
-
-                    vectorstore = get_vectorstore(text_chunks, embeddings_selection)
-                    vectorstore_filename = f"{custom_vectorstore_name}.pkl"
-                    save_vectorstore(vectorstore, vectorstore_filename)
-                   # st.session_state.vectorstore_selection = vectorstore_filename  # Update the current selection to the new file
-                    st.success(f"El vectorstore '{vectorstore_filename}' ha sido guardado exitosamente.")
-                else:
-                    vectorstore = load_vectorstore(st.session_state.vectorstore_selection)
-                    vectorstore.update(text_chunks)
-
-                # Get the current vectorstore
-                current_vectorstore = vectorstore
-
-                # Create conversation chain
-                if current_vectorstore is not None:
-                    st.session_state.conversation = chain_setup(current_vectorstore, llm_selection)
-
-        if st.button("Clear Chat"):
-            st.session_state.user = []
-            st.session_state.generated = []
-            st.session_state.cost = []
+        # custom_vectorstore_name = st.text_input("Enter a name for the new vectorstore (if creating new):", value="")
 
 
-    tab1, tab2 = st.tabs(["Ubicación y uso", "Análisis de planos"])
+        # # Handle file upload
+        # pdf_docs = st.file_uploader(
+        #     "Upload your PDFs here and click on 'Process'",
+        #     type=["pdf", "txt"],
+        #     accept_multiple_files=True
+        # )
+        # if st.button("Process"):
+        #     with st.spinner("Processing"):
+        #         # Get PDF text
+        #         raw_text = get_pdf_text(pdf_docs)
+
+        #         # Get the text chunks
+        #         text_chunks = get_text_chunks(raw_text)
+
+        #         # Create or load vector store
+        #         if (
+        #             st.session_state.vectorstore_selection == "Create New"
+        #             or not os.path.exists(
+        #                 os.path.join(VECTORSTORE_DIR, st.session_state.vectorstore_selection)
+        #             )
+        #         ):                   
+
+        #             vectorstore = get_vectorstore(text_chunks, embeddings_selection)
+        #             vectorstore_filename = f"{custom_vectorstore_name}.pkl"
+        #             save_vectorstore(vectorstore, vectorstore_filename)
+        #            # st.session_state.vectorstore_selection = vectorstore_filename  # Update the current selection to the new file
+        #             st.success(f"El vectorstore '{vectorstore_filename}' ha sido guardado exitosamente.")
+        #         else:
+        #             vectorstore = load_vectorstore(st.session_state.vectorstore_selection)
+        #             vectorstore.update(text_chunks)
+
+        #         # Get the current vectorstore
+        #         current_vectorstore = vectorstore
+
+        #         # Create conversation chain
+        #         if current_vectorstore is not None:
+        #             st.session_state.conversation = chain_setup(current_vectorstore, llm_selection)
+
+        # if st.button("Clear Chat"):
+        #     st.session_state.user = []
+        #     st.session_state.generated = []
+        #     st.session_state.cost = []
+
+
+    tab1, tab2, tab3 = st.tabs(["Ubicación y uso", "Análisis de planos", "Porcentaje de aprobación"])
 
     # Generate empty lists for generated and user.
     # Assistant Response
@@ -769,78 +813,52 @@ def main():
 
         if st.button("Analizar plano constructivo", key="analyze_constructive_plan"):
             if image_file_constructive is not None:
-                # Procesar la imagen
                 image_data = image_file_constructive.read()
-                analysis_response_transversal = analyze_image_with_openai(image_data )
-                st.write("analysis_response_transversal")
-                st.write(analysis_response_transversal)
-                st.divider()
-        
-
-                st.session_state.analysis_response_transversal = analysis_response_transversal  # Guardar respuesta en session_state
-
-                predefined_vectorstore_name = "Características constructivas generales.pkl"
+                predefined_vectorstore_name = "Locales.pkl"
                 current_vectorstore = load_vectorstore(predefined_vectorstore_name)
+    
                 if current_vectorstore is None:
                     st.error(f"Vectorstore no configurado")
 
-                user_input_comparison = (
-                    f"La información obtenida del plano es: {analysis_response_transversal}. "
-                    f"Por favor de un análisis y una conclusión muy detallada y completa donde explique si los planos cumplen con la normatividad"
-                )
-                
                 llm_chain = chain_setup(current_vectorstore, llm_selection)
-                response, cost = generate_response(user_input_comparison, llm_chain, llm_selection)
+                response = analyze_image_with_vectorstore(image_data,current_vectorstore)
 
-                st.write("response")
-                st.write(response)
-        
+                st.write("### Resultado del análisis")
+                st.markdown(response)
 
         if 'analysis_response_transversal' in st.session_state:
             st.write("Análisis del plano constructivo:")
             st.write(st.session_state.analysis_response_transversal)
-
+        st.divider()
         ## ============================================================================= ##
         st.title("Plano fachadas")
 
-        # Descripción para el plano de sección fachades
-        st.write("El plano constructivo")
+        # Descripción para el plano de sección transversal
+        st.write("El plano fachadas")
 
         # Carga del archivo de imagen
-        image_file_fachades = st.file_uploader("Cargar plano:", type=["jpg", "jpeg", "png"], key="construction_plan")
+        image_file_fachades = st.file_uploader("Cargar plano:", type=["jpg", "jpeg", "png"], key="fachades_plan")
         
 
-        if st.button("Analizar plano constructivo", key="analyze_fachades_plan"):
+        if st.button("Analizar plano fachadas", key="analyze_fachades_plan"):
             if image_file_fachades is not None:
-                # Procesar la imagen
                 image_data = image_file_fachades.read()
-                analysis_response_fachades = analyze_image_with_openai(image_data )
-                st.write("analysis_response_fachades")
-                st.write(analysis_response_fachades)
-                st.divider()
-        
-
-                st.session_state.analysis_response_fachades = analysis_response_fachades  # Guardar respuesta en session_state
-
                 predefined_vectorstore_name = "Fachadas.pkl"
                 current_vectorstore = load_vectorstore(predefined_vectorstore_name)
+    
                 if current_vectorstore is None:
                     st.error(f"Vectorstore no configurado")
 
-                user_input_comparison = (
-                    f"La información obtenida del plano es: {analysis_response_fachades}. "
-                    f"Por favor de un análisis y una conclusión muy detallada y completa donde explique si los planos cumplen con la normatividad"
-                )
-                
                 llm_chain = chain_setup(current_vectorstore, llm_selection)
-                response, cost = generate_response(user_input_comparison, llm_chain, llm_selection)
+                response = analyze_image_with_vectorstore(image_data,current_vectorstore)
 
-                st.write("response")
-                st.write(response)
-        
+                st.write("### Resultado del análisis")
+                st.markdown(response)
+
+
 
         if 'analysis_response_transversal' in st.session_state:
-            st.write("Análisis del plano constructivo:")
+            st.write("Análisis del plano fachadas:")
             st.write(st.session_state.analysis_response_transversal)
 
 if __name__ == "__main__":
