@@ -315,7 +315,7 @@ def check_usage_compatibility(zona_seleccionada, uso_predominante, uso_complemen
     return comparison_response
 
 
-def analyze_image_with_openai(image_data, comparative):
+def analyze_image_with_openai_comparation(image_data, comparative):
     try:
         print("analyze_image_with_openai")
         # Abrir y leer la imagen
@@ -357,6 +357,49 @@ def analyze_image_with_openai(image_data, comparative):
         print(f"Ocurrió un error inesperado: {e}")
         return None
     
+
+def analyze_image_with_openai(image_data):
+    try:
+        print("analyze_image_with_openai")
+        # Abrir y leer la imagen
+        # with open(image_path, "rb") as image_file:
+        #     base64_image = base64.b64encode(image_file.read()).decode('utf-8')
+        base64_image = base64.b64encode(image_data).decode('utf-8')
+        print("base64_image", base64_image)
+        # Realizar la llamada a la API de OpenAI
+        response = openai.ChatCompletion.create(
+            model='gpt-4o',  # Cambia al modelo adecuado
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": f"Analiza esta imagen, es de un plano constructivo, y respondeme con la mayor cantidad de datos posibles de esos plano, incluyendo medidas, ubicaciones, convenciones, habitacioes, areas y demás cosas que consideres importantes"
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}"
+                            }
+                        }
+                    ]
+                }
+            ]
+        )
+        print("response>>>", response)
+        return response['choices'][0]['message']['content']
+
+    # except FileNotFoundError:
+    #     print(f"Error: El archivo {image_path} no se encuentra.")
+    #     return None
+    except openai.error.OpenAIError as e:
+        print(f"Error al comunicarse con la API de OpenAI: {e}")
+        return None
+    except Exception as e:
+        print(f"Ocurrió un error inesperado: {e}")
+        return None
+
 def extract_text_from_image(image_data):
     try:
         # Convertir los datos binarios a una imagen
@@ -426,23 +469,19 @@ def main():
         st.subheader(":gear: Options")
         
         # Step 1: Choose a Large Language Model
-        llm_selection = st.selectbox(
-            "Step 1: Choose a Large Language Model",
-            options=["OpenAI", "Falcon", "OpenAssistant"]
-        )
+        llm_selection = "OpenAI"
 
         # Step 2: Choose Embeddings Model
-        embeddings_selection = st.selectbox(
-            "Step 2: Choose an Embeddings Model",
-            options=["OpenAI", "HuggingFaceInstruct"]
-        )
-
+        embeddings_selection ="OpenAI"
         # Step 3: Select or Create a Vector Store File
         vectorstore_files = ["Create New"] + os.listdir(VECTORSTORE_DIR)
         st.session_state.vectorstore_selection = st.selectbox(
             "Step 3: Choose a Vector Store File",
             options=vectorstore_files
         )
+
+        custom_vectorstore_name = st.text_input("Enter a name for the new vectorstore (if creating new):", value="")
+
 
         # Handle file upload
         pdf_docs = st.file_uploader(
@@ -464,11 +503,13 @@ def main():
                     or not os.path.exists(
                         os.path.join(VECTORSTORE_DIR, st.session_state.vectorstore_selection)
                     )
-                ):
+                ):                   
+
                     vectorstore = get_vectorstore(text_chunks, embeddings_selection)
-                    vectorstore_filename = f"{llm_selection}_{embeddings_selection}_{len(os.listdir(VECTORSTORE_DIR))}.pkl"
+                    vectorstore_filename = f"{custom_vectorstore_name}.pkl"
                     save_vectorstore(vectorstore, vectorstore_filename)
-                    st.session_state.vectorstore_selection = vectorstore_filename  # Update the current selection to the new file
+                   # st.session_state.vectorstore_selection = vectorstore_filename  # Update the current selection to the new file
+                    st.success(f"El vectorstore '{vectorstore_filename}' ha sido guardado exitosamente.")
                 else:
                     vectorstore = load_vectorstore(st.session_state.vectorstore_selection)
                     vectorstore.update(text_chunks)
@@ -590,17 +631,19 @@ def main():
                 )
                 # Llamar a la API de OpenAI y mostrar la respuesta formateada
                 if user_input:
-                    # current_vectorstore = load_vectorstore(st.session_state.vectorstore_selection)
-                    # if current_vectorstore is None:
-                    #     return
+                    predefined_vectorstore_name = "Zonas Codigo Urbano.pkl"
+                    current_vectorstore = load_vectorstore(predefined_vectorstore_name)
+    
+                    if current_vectorstore is None:
+                        st.error(f"Vectorstore no configurado")
 
-                    # llm_chain = chain_setup(current_vectorstore, llm_selection)
-                    # response, cost = generate_response(user_input, llm_chain, llm_selection)
+                    llm_chain = chain_setup(current_vectorstore, llm_selection)
+                    response, cost = generate_response(user_input, llm_chain, llm_selection)
 
-                    # Procesar la respuesta para mostrarla como lista
-                    #response_list = [line.strip() for line in response.splitlines() if line.strip()]
+                    #Procesar la respuesta para mostrarla como lista
+                    response_list = [line.strip() for line in response.splitlines() if line.strip()]
 
-                    response_list =  ['1. Usos permitidos predominantes: Vivienda unifamiliar.', '2. Usos permitidos complementarios: No especificado.', '3. Densidades: 48 habitantes por hectárea bruta y 66 habitantes por hectárea neta.', '4. Parcelamiento: Los predios deben tener un ancho mínimo de 15m y una superficie mínima de 600m².', '5. Factor de ocupación de suelo (FOS): Hasta 0,45.', '6. Factor de ocupación total (FOT): Hasta 0,9.', '7. Retiros de frente: 3,00m.', '8. Retiros laterales: 3,00m.', '9. Profundidad edificable: No especificado.', '10. Alturas máximas: 8,50m.', '11. Plano límite: No especificado.', '12. Número de viviendas por parcela: No especificado.', '13. Separaciones entre edificios: No especificado.', '14. Usos diferenciados: No especificado.', '15. Otra información relevante: Se debe cumplir con las normativas de la zona Rb3 y al uso a desarrollar.']
+                   # response_list =  ['1. Usos permitidos predominantes: Vivienda unifamiliar.', '2. Usos permitidos complementarios: No especificado.', '3. Densidades: 48 habitantes por hectárea bruta y 66 habitantes por hectárea neta.', '4. Parcelamiento: Los predios deben tener un ancho mínimo de 15m y una superficie mínima de 600m².', '5. Factor de ocupación de suelo (FOS): Hasta 0,45.', '6. Factor de ocupación total (FOT): Hasta 0,9.', '7. Retiros de frente: 3,00m.', '8. Retiros laterales: 3,00m.', '9. Profundidad edificable: No especificado.', '10. Alturas máximas: 8,50m.', '11. Plano límite: No especificado.', '12. Número de viviendas por parcela: No especificado.', '13. Separaciones entre edificios: No especificado.', '14. Usos diferenciados: No especificado.', '15. Otra información relevante: Se debe cumplir con las normativas de la zona Rb3 y al uso a desarrollar.']
                     print("response List>>>>", response_list)
 
 
@@ -680,7 +723,7 @@ def main():
             if image_file_location is not None:
                 # Procesar la imagen
                 image_data = image_file_location.read()
-                analysis_response_location = analyze_image_with_openai(image_data, comparation_location)
+                analysis_response_location = analyze_image_with_openai_comparation(image_data, comparation_location)
                 st.session_state.analysis_response_location = analysis_response_location  # Guardar respuesta en session_state
 
         if 'analysis_response_location' in st.session_state:
@@ -706,7 +749,7 @@ def main():
         if st.button("Analizar plano de sección transversal", key="analyze_transversal_plan"):
             if image_file_transversal is not None:
                 # Procesar la imagen
-                analysis_response_transversal = analyze_image_with_openai(image_file_transversal, comparation_transversal)
+                analysis_response_transversal = analyze_image_with_openai_comparation(image_file_transversal, comparation_transversal)
                 st.session_state.analysis_response_transversal = analysis_response_transversal  # Guardar respuesta en session_state
 
         if 'analysis_response_transversal' in st.session_state:
@@ -721,20 +764,80 @@ def main():
         st.write("El plano constructivo")
 
         # Carga del archivo de imagen
-        image_file_transversal = st.file_uploader("Cargar plano:", type=["jpg", "jpeg", "png"], key="construction_plan")
-        image_data = image_file_transversal
-        current_vectorstore = load_vectorstore(st.session_state.vectorstore_selection)
-        if current_vectorstore is None:
-            return
-
-        llm_chain = chain_setup(current_vectorstore, llm_selection)
+        image_file_constructive = st.file_uploader("Cargar plano:", type=["jpg", "jpeg", "png"], key="construction_plan")
         
 
         if st.button("Analizar plano constructivo", key="analyze_constructive_plan"):
-            if image_file_transversal is not None:
+            if image_file_constructive is not None:
                 # Procesar la imagen
-                analysis_response_transversal = analyze_image_with_vectorstore(image_data, llm_chain,llm_selection )
+                image_data = image_file_constructive.read()
+                analysis_response_transversal = analyze_image_with_openai(image_data )
+                st.write("analysis_response_transversal")
+                st.write(analysis_response_transversal)
+                st.divider()
+        
+
                 st.session_state.analysis_response_transversal = analysis_response_transversal  # Guardar respuesta en session_state
+
+                predefined_vectorstore_name = "Características constructivas generales.pkl"
+                current_vectorstore = load_vectorstore(predefined_vectorstore_name)
+                if current_vectorstore is None:
+                    st.error(f"Vectorstore no configurado")
+
+                user_input_comparison = (
+                    f"La información obtenida del plano es: {analysis_response_transversal}. "
+                    f"Por favor de un análisis y una conclusión muy detallada y completa donde explique si los planos cumplen con la normatividad"
+                )
+                
+                llm_chain = chain_setup(current_vectorstore, llm_selection)
+                response, cost = generate_response(user_input_comparison, llm_chain, llm_selection)
+
+                st.write("response")
+                st.write(response)
+        
+
+        if 'analysis_response_transversal' in st.session_state:
+            st.write("Análisis del plano constructivo:")
+            st.write(st.session_state.analysis_response_transversal)
+
+        ## ============================================================================= ##
+        st.title("Plano fachadas")
+
+        # Descripción para el plano de sección fachades
+        st.write("El plano constructivo")
+
+        # Carga del archivo de imagen
+        image_file_fachades = st.file_uploader("Cargar plano:", type=["jpg", "jpeg", "png"], key="construction_plan")
+        
+
+        if st.button("Analizar plano constructivo", key="analyze_fachades_plan"):
+            if image_file_fachades is not None:
+                # Procesar la imagen
+                image_data = image_file_fachades.read()
+                analysis_response_fachades = analyze_image_with_openai(image_data )
+                st.write("analysis_response_fachades")
+                st.write(analysis_response_fachades)
+                st.divider()
+        
+
+                st.session_state.analysis_response_fachades = analysis_response_fachades  # Guardar respuesta en session_state
+
+                predefined_vectorstore_name = "Fachadas.pkl"
+                current_vectorstore = load_vectorstore(predefined_vectorstore_name)
+                if current_vectorstore is None:
+                    st.error(f"Vectorstore no configurado")
+
+                user_input_comparison = (
+                    f"La información obtenida del plano es: {analysis_response_fachades}. "
+                    f"Por favor de un análisis y una conclusión muy detallada y completa donde explique si los planos cumplen con la normatividad"
+                )
+                
+                llm_chain = chain_setup(current_vectorstore, llm_selection)
+                response, cost = generate_response(user_input_comparison, llm_chain, llm_selection)
+
+                st.write("response")
+                st.write(response)
+        
 
         if 'analysis_response_transversal' in st.session_state:
             st.write("Análisis del plano constructivo:")
