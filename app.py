@@ -1,7 +1,10 @@
 import os
 import uuid
 from typing import Any
+import pytesseract
+from PIL import Image
 import requests
+import base64
 import urllib.parse
 import openai
 import json
@@ -205,6 +208,14 @@ def get_current_vectorstore():
         vectorstore = load_vectorstore(st.session_state.vectorstore_selection)
         return vectorstore
 
+## ========================================================================================================== ##
+## ========================================================================================================== ##
+## ========================================================================================================== ##
+## ========================================================================================================== ##
+## ========================================================================================================== ##
+## ========================================================================================================== ##
+## ========================================================================================================== ##
+## ========================================================================================================== ##
 
 def search_address(
     street,
@@ -286,6 +297,8 @@ def search_address(
 
     else:
         print("status_code=404, detail=Error encontrando el predio")
+
+
 def check_usage_compatibility(zona_seleccionada, uso_predominante, uso_complementario, llm_chain, llm_selection):
     # Crear la consulta para verificar la compatibilidad
     user_input_comparison = (
@@ -301,7 +314,104 @@ def check_usage_compatibility(zona_seleccionada, uso_predominante, uso_complemen
     # Retornar la respuesta obtenida
     return comparison_response
 
+
+def analyze_image_with_openai(image_data, comparative):
+    try:
+        print("analyze_image_with_openai")
+        # Abrir y leer la imagen
+        # with open(image_path, "rb") as image_file:
+        #     base64_image = base64.b64encode(image_file.read()).decode('utf-8')
+        base64_image = base64.b64encode(image_data).decode('utf-8')
+        print("base64_image", base64_image)
+        # Realizar la llamada a la API de OpenAI
+        response = openai.ChatCompletion.create(
+            model='gpt-4o',  # Cambia al modelo adecuado
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": f"Analiza esta imagen del plano de ubicación y determina si cumple con la normativa siguiente: {comparative}"
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}"
+                            }
+                        }
+                    ]
+                }
+            ]
+        )
+        print("response>>>", response)
+        return response['choices'][0]['message']['content']
+
+    # except FileNotFoundError:
+    #     print(f"Error: El archivo {image_path} no se encuentra.")
+    #     return None
+    except openai.error.OpenAIError as e:
+        print(f"Error al comunicarse con la API de OpenAI: {e}")
+        return None
+    except Exception as e:
+        print(f"Ocurrió un error inesperado: {e}")
+        return None
+    
+def extract_text_from_image(image_data):
+    try:
+        # Convertir los datos binarios a una imagen
+        image = Image.open(image_data)
+        # Usar pytesseract para extraer texto de la imagen
+        extracted_text = pytesseract.image_to_string(image)
+        return extracted_text
+    except Exception as e:
+        st.error(f"Error al extraer texto de la imagen: {e}")
+        return ""
+
+def analyze_image_with_vectorstore(image_data, llm_chain, llm_model_name):
+    try:
+
+       
+        extracted_text = extract_text_from_image(image_data)
+        print("extracted_text", extracted_text)
+        # base64_image = base64.b64encode(image_data).decode('utf-8')
+        # image_content = f"data:image/jpeg;base64,{base64_image}"
+        # print("base64_image", base64_image)
+
+        question = f"Analiza el siguiente texto extraído del plano constructivo en el contexto de los datos existentes:\n{extracted_text}"
+        if llm_model_name == "OpenAI":
+            with get_openai_callback() as cb:
+                response = llm_chain.run(question)
+
+                if cb is not None:
+                    cost = round(cb.total_cost, 5)
+        else:
+            response = llm_chain.run(question)
+
+        st.session_state.chat_history.append((question, response))
+        return response, cost
+
+    # except FileNotFoundError:
+    #     print(f"Error: El archivo {image_path} no se encuentra.")
+    #     return None
+    except openai.error.OpenAIError as e:
+        print(f"Error al comunicarse con la API de OpenAI: {e}")
+        return None
+    except Exception as e:
+        print(f"Ocurrió un error inesperado: {e}")
+        return None
+
+## ========================================================================================================== ##
+## ========================================================================================================== ##
+## ========================================================================================================== ##
+## ========================================================================================================== ##
+## ========================================================================================================== ##
+## ========================================================================================================== ##
+## ========================================================================================================== ##
+## ========================================================================================================== ##
+
 def main():
+    response_list = None
     page_bg_color = """
     <style>
         body {
@@ -376,7 +486,7 @@ def main():
             st.session_state.cost = []
 
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Ubicación y uso", "Alturas edificación", "Mitigations", "DREAD", "Test Cases"])
+    tab1, tab2 = st.tabs(["Ubicación y uso", "Análisis de planos"])
 
     # Generate empty lists for generated and user.
     # Assistant Response
@@ -487,10 +597,11 @@ def main():
                     # llm_chain = chain_setup(current_vectorstore, llm_selection)
                     # response, cost = generate_response(user_input, llm_chain, llm_selection)
 
-                    # # Procesar la respuesta para mostrarla como lista
-                    # response_list = [line.strip() for line in response.splitlines() if line.strip()]
-                    # print("response List>>>>", response_list)
-                    response_list =  ['1. Usos permitidos predominantes: Vivienda unifamiliar.', '2. Usos permitidos complementarios: No se especifica ningún uso complementario.', '3. Densidades: 48 habitantes por hectárea bruta y 66 habitantes por hectárea neta.', '4. Parcelamiento: Los predios deben tener un ancho mínimo de 15 metros y una superficie mínima de 600 metros cuadrados.', '5. Factor de ocupación de suelo (FOS): Hasta 0,45.', '6. Factor de ocupación total (FOT): Hasta 0,9.', '7. Retiros de frente: 3 metros.', '8. Retiros laterales: 3 metros en planta alta.', '9. Profundidad edificable: No especificado en la información proporcionada.', '10. Alturas máximas: 8,50 metros.', '11. Plano límite: No especificado en la información proporcionada.', '12. Número de viviendas por parcela: No especificado en la información proporcionada.', '13. Separaciones entre edificios: No se especifica en la información proporcionada.', '14. Usos diferenciados: No se menciona ningún uso diferenciado.', '15. Otra información relevante: La zona Rb3 en el Radio 1 tiene limitaciones específicas para el uso de suelo, densidades y factor de ocupación que deben ser respetadas en el desarrollo de proyectos inmobiliarios en esa área.']
+                    # Procesar la respuesta para mostrarla como lista
+                    #response_list = [line.strip() for line in response.splitlines() if line.strip()]
+
+                    response_list =  ['1. Usos permitidos predominantes: Vivienda unifamiliar.', '2. Usos permitidos complementarios: No especificado.', '3. Densidades: 48 habitantes por hectárea bruta y 66 habitantes por hectárea neta.', '4. Parcelamiento: Los predios deben tener un ancho mínimo de 15m y una superficie mínima de 600m².', '5. Factor de ocupación de suelo (FOS): Hasta 0,45.', '6. Factor de ocupación total (FOT): Hasta 0,9.', '7. Retiros de frente: 3,00m.', '8. Retiros laterales: 3,00m.', '9. Profundidad edificable: No especificado.', '10. Alturas máximas: 8,50m.', '11. Plano límite: No especificado.', '12. Número de viviendas por parcela: No especificado.', '13. Separaciones entre edificios: No especificado.', '14. Usos diferenciados: No especificado.', '15. Otra información relevante: Se debe cumplir con las normativas de la zona Rb3 y al uso a desarrollar.']
+                    print("response List>>>>", response_list)
 
 
 
@@ -526,8 +637,108 @@ def main():
                     else:
                         st.error("No se encontraron los datos de 'Usos permitidos predominantes' o 'Usos permitidos complementarios' en la respuesta.")
 
+    with tab2:
+        response_list =  [
+            '1. Usos permitidos predominantes: Vivienda unifamiliar.',
+            '2. Usos permitidos complementarios: No especificado.',
+            '3. Densidades: 48 habitantes por hectárea bruta y 66 habitantes por hectárea neta.',
+            '4. Parcelamiento: Los predios deben tener un ancho mínimo de 15m y una superficie mínima de 600m².',
+            '5. Factor de ocupación de suelo (FOS): Hasta 0,45.',
+            '6. Factor de ocupación total (FOT): Hasta 0,9.',
+            '7. Retiros de frente: 3,00m.',
+            '8. Retiros laterales: 3,00m.',
+            '9. Profundidad edificable: No especificado.',
+            '10. Alturas máximas: 8,50m.',
+            '11. Plano límite: No especificado.',
+            '12. Número de viviendas por parcela: No especificado.',
+            '13. Separaciones entre edificios: No especificado.',
+            '14. Usos diferenciados: No especificado.',
+            '15. Otra información relevante: Se debe cumplir con las normativas de la zona Rb3 y al uso a desarrollar.'
+        ]
 
+        ## ============================================================================= ##
+        # Título para el plano de ubicación
+        st.title("Plano de Ubicación en el Terreno")
 
+        # Descripción para el plano de ubicación
+        st.write("Este plano debe contener las medidas de los linderos, medidas de retiros y ubicación de la construcción principal en la parcela")
+
+        # Carga del archivo de imagen
+
+        comparation_location = [
+            response_list[4],
+            response_list[5],
+            response_list[6],
+            response_list[7],
+            response_list[8]
+        ]
+
+        #image_path_location = 'D:\gitRepos\GPT\plans\Plano ubicación en terreno.jpg'
+
+        image_file_location = st.file_uploader("Cargar plano:", type=["jpg", "jpeg", "png"], key="location_plan")
+        if st.button("Analizar plano de ubicación", key="analyze_location_plan"):
+            if image_file_location is not None:
+                # Procesar la imagen
+                image_data = image_file_location.read()
+                analysis_response_location = analyze_image_with_openai(image_data, comparation_location)
+                st.session_state.analysis_response_location = analysis_response_location  # Guardar respuesta en session_state
+
+        if 'analysis_response_location' in st.session_state:
+            st.write("Análisis del plano de ubicación:")
+            st.write(st.session_state.analysis_response_location)
+
+        st.divider()
+        ## ============================================================================= ##
+        st.title("Plano sección transversal para alturas")
+
+        # Descripción para el plano de sección transversal
+        st.write("El plano de sección transversal debe representar las alturas de los diferentes niveles de la construcción")
+
+        # Carga del archivo de imagen
+        image_file_transversal = st.file_uploader("Cargar plano:", type=["jpg", "jpeg", "png"], key="transversal_cut_plan")
+
+        comparation_transversal = [
+            response_list[9]
+        ]
+
+        #image_path_transversal = 'D:\gitRepos\GPT\plans\Corte transversal.jpg'
+
+        if st.button("Analizar plano de sección transversal", key="analyze_transversal_plan"):
+            if image_file_transversal is not None:
+                # Procesar la imagen
+                analysis_response_transversal = analyze_image_with_openai(image_file_transversal, comparation_transversal)
+                st.session_state.analysis_response_transversal = analysis_response_transversal  # Guardar respuesta en session_state
+
+        if 'analysis_response_transversal' in st.session_state:
+            st.write("Análisis del plano de sección transversal:")
+            st.write(st.session_state.analysis_response_transversal)
+
+        st.divider()
+        ## ============================================================================= ##
+        st.title("Plano constructivo")
+
+        # Descripción para el plano de sección transversal
+        st.write("El plano constructivo")
+
+        # Carga del archivo de imagen
+        image_file_transversal = st.file_uploader("Cargar plano:", type=["jpg", "jpeg", "png"], key="construction_plan")
+        image_data = image_file_transversal
+        current_vectorstore = load_vectorstore(st.session_state.vectorstore_selection)
+        if current_vectorstore is None:
+            return
+
+        llm_chain = chain_setup(current_vectorstore, llm_selection)
+        
+
+        if st.button("Analizar plano constructivo", key="analyze_constructive_plan"):
+            if image_file_transversal is not None:
+                # Procesar la imagen
+                analysis_response_transversal = analyze_image_with_vectorstore(image_data, llm_chain,llm_selection )
+                st.session_state.analysis_response_transversal = analysis_response_transversal  # Guardar respuesta en session_state
+
+        if 'analysis_response_transversal' in st.session_state:
+            st.write("Análisis del plano constructivo:")
+            st.write(st.session_state.analysis_response_transversal)
 
 if __name__ == "__main__":
     # Inicializar estado de la sesión
