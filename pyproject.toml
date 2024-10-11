@@ -21,6 +21,7 @@ faiss-cpu = "^1.7.4"
 pyproj = "^3.6.0"
 pytesseract = "^0.3.10"
 Pillow = "^9.0.1"
+pymongo = "4.10.1"
 
 [build-system]
 requires = ["poetry-core"]

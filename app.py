@@ -4,13 +4,16 @@ from typing import Any
 import pytesseract
 from PIL import Image
 import requests
+import pickle
+from pymongo import MongoClient
+from bson import Binary
 import base64
 import urllib.parse
 import openai
 import json
 from pyproj import Proj, Transformer
 import pandas as pd
-import pickle
+
 import streamlit as st
 from dotenv import load_dotenv
 from langchain.chains import ConversationalRetrievalChain
@@ -35,6 +38,13 @@ load_dotenv()
 # Create the vectorstore directory if it doesn't exist
 VECTORSTORE_DIR = "vectorstore"
 os.makedirs(VECTORSTORE_DIR, exist_ok=True)
+
+#MONGO:
+MONGODB_URI = os.getenv("MONGODB_URI")
+client = MongoClient(MONGODB_URI)
+db = client['vectorstore_db']
+collection = db['vectors']
+
 
 
 # set the page title and icon
@@ -62,8 +72,19 @@ def get_text_chunks(text):
 
 
 def save_vectorstore(vectorstore, filename):
-    with open(os.path.join(VECTORSTORE_DIR, filename), "wb") as file:
-        pickle.dump(vectorstore, file)
+    # with open(os.path.join(VECTORSTORE_DIR, filename), "wb") as file:
+    #     pickle.dump(vectorstore, file)
+    save_vectorstore_to_mongo(vectorstore, filename)
+
+def save_vectorstore_to_mongo(vectorstore, name):
+    serialized_vectorstore = Binary(pickle.dumps(vectorstore))  # Serializar el vectorstore
+    collection.insert_one({"name": name, "vectorstore_data": serialized_vectorstore})
+
+def load_vectorstore_from_mongo(name):
+    result = collection.find_one({"name": name})
+    if result:
+        return pickle.loads(result["vectorstore_data"])  # Deserializar el vectorstore
+    return None
 
 
 def get_vectorstore(text_chunks, embeddings_selection):
@@ -79,10 +100,10 @@ def get_vectorstore(text_chunks, embeddings_selection):
 
 
 def load_vectorstore(filename):
-    with open(os.path.join(VECTORSTORE_DIR, filename), "rb") as file:
-        vectorstore = pickle.load(file)
-    return vectorstore
-
+    # with open(os.path.join(VECTORSTORE_DIR, filename), "rb") as file:
+    #     vectorstore = pickle.load(file)
+    # return vectorstore
+    return load_vectorstore_from_mongo(filename)
 
 if "memory" not in st.session_state:
     st.session_state.memory = ConversationBufferMemory(
@@ -317,15 +338,10 @@ def check_usage_compatibility(zona_seleccionada, uso_predominante, uso_complemen
 
 def analyze_image_with_openai_comparation(image_data, comparative):
     try:
-        print("analyze_image_with_openai_comparation")
-        # Abrir y leer la imagen
-        # with open(image_path, "rb") as image_file:
-        #     base64_image = base64.b64encode(image_file.read()).decode('utf-8')
+       
         base64_image = base64.b64encode(image_data).decode('utf-8')
-        #print("base64_image", base64_image)
-        # Realizar la llamada a la API de OpenAI
         response = openai.ChatCompletion.create(
-            model='gpt-4o',  # Cambia al modelo adecuado
+            model='gpt-4o', 
             messages=[
                 {
                     "role": "user",
@@ -344,12 +360,8 @@ def analyze_image_with_openai_comparation(image_data, comparative):
                 }
             ]
         )
-        print("response>>>", response)
         return response['choices'][0]['message']['content']
 
-    # except FileNotFoundError:
-    #     print(f"Error: El archivo {image_path} no se encuentra.")
-    #     return None
     except openai.error.OpenAIError as e:
         print(f"Error al comunicarse con la API de OpenAI: {e}")
         return None
@@ -360,21 +372,17 @@ def analyze_image_with_openai_comparation(image_data, comparative):
 
 def analyze_image_with_openai(image_data, question):
     try:
-        print("question", question)
         query = None
         if question:
             query = question
         else:
 
             query = f"Analiza esta imagen, es de un plano constructivo, y respondeme con la mayor cantidad de datos posibles de esos plano, incluyendo medidas, ubicaciones, convenciones, habitacioes, areas y demás cosas que consideres importantes"
-        print("analyze_image_with_openai")
-        # Abrir y leer la imagen
-        # with open(image_path, "rb") as image_file:
-        #     base64_image = base64.b64encode(image_file.read()).decode('utf-8')
+      
         base64_image = base64.b64encode(image_data).decode('utf-8')
-        # Realizar la llamada a la API de OpenAI
+    
         response = openai.ChatCompletion.create(
-            model='gpt-4o',  # Cambia al modelo adecuado
+            model='gpt-4o',  
             messages=[
                 {
                     "role": "user",
@@ -393,7 +401,6 @@ def analyze_image_with_openai(image_data, question):
                 }
             ]
         )
-        print("response>>>", response)
         if 'choices' in response and len(response['choices']) > 0:
             message = response['choices'][0].get('message', {})
             content = message.get('content', None)
@@ -407,9 +414,7 @@ def analyze_image_with_openai(image_data, question):
             st.error("No se recibió una respuesta válida del modelo.")
             return None
 
-    # except FileNotFoundError:
-    #     print(f"Error: El archivo {image_path} no se encuentra.")
-    #     return None
+   
     except openai.error.OpenAIError as e:
         print(f"Error al comunicarse con la API de OpenAI: {e}")
         return None
@@ -417,37 +422,15 @@ def analyze_image_with_openai(image_data, question):
         print(f"Ocurrió un error inesperado: {e}")
         return None
 
-def extract_text_from_image(image_data):
-    try:
-        # Convertir los datos binarios a una imagen
-        image = Image.open(image_data)
-        # Usar pytesseract para extraer texto de la imagen
-        extracted_text = pytesseract.image_to_string(image)
-        return extracted_text
-    except Exception as e:
-        st.error(f"Error al extraer texto de la imagen: {e}")
-        return ""
 
 def analyze_image_with_vectorstore(image_data, vectorstore):
     try:
-        # Convertir la imagen a base64 para incluirla en la solicitud
-       
-        
-        # Buscar información relevante en el vectorstore basada en la imagen (simulando la búsqueda usando una consulta general)
-        
-
-        # Construir el contenido para el modelo LLM con la información del vectorstore y la imagen
+      
         extracted_data = analyze_image_with_openai(image_data, None)
-        # Extraer la descripción con los datos relevantes de la imagen
-     
-
-        print("extracted_data>>", extracted_data)
-
-        # Paso 2: Buscar información relevante en el vectorstore usando los datos extraídos
+  
         search_results = vectorstore.similarity_search(extracted_data, k=5)
         relevant_texts = "\n".join([result.page_content for result in search_results])
 
-        # Paso 3: Generar una conclusión usando la información del vectorstore y los datos extraídos
         conclusion_prompt = (
             f"Los datos obtenidos del análisis de la imagen son: {extracted_data}. "
             f"Basándote en la siguiente información relevante de los documentos almacenados: {relevant_texts}, "
@@ -455,7 +438,6 @@ def analyze_image_with_vectorstore(image_data, vectorstore):
         )
 
         final_respone = simple_gpt_response(conclusion_prompt, "OpenAI")
-        print("final_respone>>>", final_respone)
 
         return final_respone[0]
 
@@ -475,14 +457,7 @@ def analyze_image_with_vectorstore(image_data, vectorstore):
 
 def main():
     response_list = None
-    page_bg_color = """
-    <style>
-        body {
-            background-color: #FF0000;
-        }
-    </style>
-    """
-    st.markdown(page_bg_color, unsafe_allow_html=True)
+    
     st.header("Curaduría San Isidro")
 
     with st.sidebar:
@@ -529,7 +504,7 @@ def main():
                     vectorstore_filename = f"{custom_vectorstore_name}.pkl"
                     save_vectorstore(vectorstore, vectorstore_filename)
                    # st.session_state.vectorstore_selection = vectorstore_filename  # Update the current selection to the new file
-                    st.success(f"El vectorstore '{vectorstore_filename}' ha sido guardado exitosamente.")
+                    st.success(f"El vectorstore '{vectorstore_filename}' ha sido guardado exitosamente en Mongo DB")
                 else:
                     vectorstore = load_vectorstore(st.session_state.vectorstore_selection)
                     vectorstore.update(text_chunks)
@@ -741,7 +716,7 @@ def main():
         st.title("Plano sección transversal para alturas")
         st.write("El plano de sección transversal debe representar las alturas de los diferentes niveles de la construcción")
 
-        comparation_transversal = [response_list[9]]
+        comparation_transversal = [response_list[9]] if response_list else None
 
         image_file_transversal = st.file_uploader("Cargar plano:", type=["jpg", "jpeg", "png"], key="transversal_cut_plan")
         if st.button("Analizar plano de sección transversal", key="analyze_transversal_plan"):
