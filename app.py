@@ -30,8 +30,9 @@ from streamlit_extras.colored_header import colored_header
 from dotenv import load_dotenv
 
 
+# port = int(os.getenv("PORT", 8501)) 
+# st.run(port=port, host="0.0.0.0")
 
-# load the environment variables
 load_dotenv()
 
 
