@@ -1,8 +1,5 @@
 import os
-import uuid
 from typing import Any
-import pytesseract
-from PIL import Image
 import requests
 import pickle
 from pymongo import MongoClient
@@ -26,13 +23,13 @@ from langchain.text_splitter import CharacterTextSplitter
 from langchain.vectorstores import FAISS
 from langchain.callbacks import get_openai_callback
 from PyPDF2 import PdfReader
-from streamlit_extras.colored_header import colored_header
 from dotenv import load_dotenv
 
 
 
 
 load_dotenv()
+
 
 
 # Create the vectorstore directory if it doesn't exist
@@ -781,6 +778,5 @@ def main():
         st.divider()
 
 if __name__ == "__main__":
-    # Inicializar estado de la sesión
 
     main()
