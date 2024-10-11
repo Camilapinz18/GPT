@@ -30,8 +30,7 @@ from streamlit_extras.colored_header import colored_header
 from dotenv import load_dotenv
 
 
-# port = int(os.getenv("PORT", 8501)) 
-# st.run(port=port, host="0.0.0.0")
+
 
 load_dotenv()
 
@@ -783,4 +782,5 @@ def main():
 
 if __name__ == "__main__":
     # Inicializar estado de la sesión
+
     main()
